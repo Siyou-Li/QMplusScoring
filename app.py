@@ -12,14 +12,13 @@ import shutil
 import csv
 import traceback
 from datetime import datetime
-from pathlib import Path
-from collections import defaultdict
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QPushButton, QLabel, QLineEdit,
     QTextEdit, QFileDialog, QMessageBox, QInputDialog,
     QDialog, QListWidget, QDialogButtonBox, QMenuBar, QAction
 )
+from PyQt5.QtGui import QIcon
 from PyQt5.QtWebEngineWidgets import QWebEngineView
 from PyQt5.QtCore import Qt, QUrl, pyqtSlot, QPointF
 from nbconvert import HTMLExporter
@@ -28,10 +27,10 @@ from nbformat.reader import NotJSONError
 # Matplotlib for histogram
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-
+# ac
 
 # Application metadata
-APP_NAME = "QMPlus Jupyter Notebook Assignment Scoring Tools"
+APP_NAME = "QMPlusScoring"
 APP_VERSION = "1.0.0"
 APP_AUTHOR = "Siyou Li"
 
@@ -54,7 +53,7 @@ class HistoryDialog(QDialog):
         self.selected = item.text()
         self.accept()
 
-class MarkerApp(QMainWindow):
+class QMPlusScoring(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
@@ -258,7 +257,7 @@ class MarkerApp(QMainWindow):
             tmp.write(placeholder.encode('utf-8'))
             tmp.flush()
             return tmp.name
-        exporter = HTMLExporter()
+        exporter = HTMLExporter(template_name='classic')
         body, _ = exporter.from_notebook_node(nb)
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.html')
         tmp.write(body.encode('utf-8'))
@@ -369,7 +368,13 @@ if __name__ == '__main__':
         "QPushButton:hover { background: #005f99; }"
         "QLineEdit, QTextEdit { border: 1px solid #ccc; border-radius: 4px; padding: 4px; }"
     )
-    win = MarkerApp()
+    app.setWindowIcon(QIcon("assets/logo.png"))
+    app.setApplicationName(APP_NAME)
+    app.setApplicationVersion(APP_VERSION)
+    app.setOrganizationName(APP_AUTHOR)
+    app.setOrganizationDomain("github.com/Siyou-Li/QMplusScoring")
+    app.setApplicationDisplayName(APP_NAME)
+    win = QMPlusScoring()
     win.show()
     try:
         ret = app.exec_()
