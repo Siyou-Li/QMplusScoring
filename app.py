@@ -25,9 +25,20 @@ from nbconvert import HTMLExporter
 import nbformat
 from nbformat.reader import NotJSONError
 # Matplotlib for histogram
+import matplotlib.pyplot as plt
+# Suppress Matplotlib font cache building messages
+import sys, io, tempfile, os
+# Redirect stdout/stderr to suppress font cache building prints
+_sys_stdout, _sys_stderr = sys.stdout, sys.stderr
+sys.stdout = io.StringIO()
+sys.stderr = io.StringIO()
+# Force Matplotlib to build cache in temp dir
+os.environ['MPLCONFIGDIR'] = tempfile.mkdtemp()
+import matplotlib
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-# ac
+# Restore stdout/stderr
+sys.stdout, sys.stderr = _sys_stdout, _sys_stderr
 
 # Application metadata
 APP_NAME = "QMPlusScoring"
@@ -57,7 +68,7 @@ class QMPlusScoring(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME)
-        self.resize(1800, 800)
+        self.resize(1800, 1000)
 
         # History storage
         self.history = tuple()
@@ -76,6 +87,7 @@ class QMPlusScoring(QMainWindow):
         self._load_reference(self.reference_nb)
         if self.students:
             self._load_current()
+            self._update_histogram()
 
     def _prompt_initial_inputs(self):
         # Use non-native dialog on macOS and attach to main window
@@ -109,10 +121,11 @@ class QMPlusScoring(QMainWindow):
         self.reference_nb = reference
 
         # Lab number
+        
         lab, ok = QInputDialog.getText(
             self,
             "Experiment Number",
-            "Enter the lab/experiment identifier (e.g., 'lab7' or 'lab 7'):"
+            "Enter the lab/experiment identifier (e.g., 1, 2, 3):",
         )
         if not ok or not lab.strip():
             QMessageBox.critical(self, "Error", "Lab number is required.")
@@ -158,6 +171,9 @@ class QMPlusScoring(QMainWindow):
         viewers = QWidget()
         view_layout = QHBoxLayout(viewers)
         self.student_view = QWebEngineView()
+        # Allow local HTML to load remote scripts (e.g. Mermaid)
+        self.student_view.settings().setAttribute(self.student_view.settings().LocalContentCanAccessRemoteUrls, False)
+        self.student_view.settings().setAttribute(self.student_view.settings().LocalContentCanAccessFileUrls, True)
         self.ref_view = QWebEngineView()
         view_layout.addWidget(self.student_view)
         view_layout.addWidget(self.ref_view)
@@ -169,8 +185,9 @@ class QMPlusScoring(QMainWindow):
         side_layout = QVBoxLayout(side)
         # Student info and grading inputs
         self.info_label = QLabel("Name / ID")
-        self.info_label.setStyleSheet("font-weight: bold;")
+        self.info_label.setStyleSheet("color: black; font-weight: bold;")
         self.score_edit = QLineEdit()
+        self.score_edit.textChanged.connect(self._update_histogram)
         self.score_edit.setPlaceholderText("Score")
         self.eval_edit = QTextEdit()
         self.history_btn = QPushButton("Reuse Past Eval")
@@ -184,7 +201,7 @@ class QMPlusScoring(QMainWindow):
         self.save_btn = QPushButton("Export Results")
         # Histogram canvas
         hist_label = QLabel("Score Distribution:")
-        hist_label.setAlignment(Qt.AlignCenter)
+        hist_label.setStyleSheet("color: black; font-weight: bold;")
         self.hist_canvas = FigureCanvas(Figure(figsize=(3,2)))
         # Assemble side panel
         side_layout.addWidget(self.info_label)
@@ -258,7 +275,15 @@ class QMPlusScoring(QMainWindow):
             tmp.flush()
             return tmp.name
         exporter = HTMLExporter(template_name='classic')
-        body, _ = exporter.from_notebook_node(nb)
+        try:
+            body, _ = exporter.from_notebook_node(nb)
+        except Exception as e:
+            QMessageBox.warning(self, "Render Error", f"Failed to render notebook {os.path.basename(path)} due to: {str(e)}")
+            placeholder = '<html><body><h2>Error rendering notebook</h2><p>' + str(e) + '</p></body></html>'
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.html')
+            tmp.write(placeholder.encode('utf-8'))
+            tmp.flush()
+            return tmp.name
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.html')
         tmp.write(body.encode('utf-8'))
         tmp.flush()
@@ -328,13 +353,39 @@ class QMPlusScoring(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save results to CSV",
-            "results.csv",
+            "Lab-{self.lab_key}.csv",
             "CSV Files (*.csv)"
         )
         if not path:
             return
         self._export_to_path(path)
         QMessageBox.information(self, "Exported", f"Results saved to {path}")
+
+    def _update_histogram(self):
+        # Extract numerical scores
+        scores = []
+        for _, _, score, _ in self.records:
+            try:
+                scores.append(float(score))
+            except:
+                pass
+        # Plot histogram
+        fig = self.hist_canvas.figure
+        fig.clear()
+        ax = fig.add_subplot(111)
+        if scores:
+            ax.hist(scores, color="#FF8000", bins=10, cumulative=True, rwidth=0.2)
+        #ax.set_title('Score Distribution')
+        ax.set_xlabel('Score')
+        ax.set_ylabel('Frequency')
+        ax.xaxis.set_major_locator(plt.MultipleLocator(1))
+        ax.yaxis.set_major_locator(plt.MultipleLocator(1))
+        
+        # ax set top and right spines to invisible
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        fig.tight_layout()
+        self.hist_canvas.draw()
 
     def _export_to_path(self, path):
         with open(path, 'w', newline='', encoding='utf-8') as f:
