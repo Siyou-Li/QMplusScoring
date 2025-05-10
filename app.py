@@ -16,7 +16,8 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QPushButton, QLabel, QLineEdit,
     QTextEdit, QFileDialog, QMessageBox, QInputDialog,
-    QDialog, QListWidget, QDialogButtonBox, QMenuBar, QAction
+    QDialog, QListWidget, QDialogButtonBox, QMenuBar, QAction,
+    QCheckBox
 )
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWebEngineWidgets import QWebEngineView
@@ -164,6 +165,11 @@ class QMPlusScoring(QMainWindow):
         self.lab_field.setReadOnly(True)
         top_layout.addWidget(self.lab_field)
         root_layout.addWidget(top_bar)
+        # Sync checkbox
+        self.sync_checkbox = QCheckBox("Synchronous Scroll")
+        self.sync_checkbox.setChecked(True)
+        top_layout.addWidget(self.sync_checkbox)
+        root_layout.addWidget(top_bar)
 
         # Main layout
         main_layout = QHBoxLayout()
@@ -264,9 +270,19 @@ class QMPlusScoring(QMainWindow):
         return None
 
     def _notebook_to_html(self, path):
+        if path is None:
+            placeholder = '<html><body><h2>Error loading notebook</h2><p>File could not be loaded.</p></body></html>'
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.html')
+            tmp.write(placeholder.encode('utf-8'))
+            tmp.flush()
+            return tmp.name
         try:
             with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                nb = nbformat.read(f, as_version=4)
+                nb = nbformat.read(f, as_version=nbformat.NO_CONVERT)
+                nb.metadata.clear()
+                for cell in nb.cells:
+                    # clear all metadata
+                    cell.metadata.clear()
         except (NotJSONError, Exception) as err:
             QMessageBox.warning(self, "Load Error", f"Could not parse notebook: {os.path.basename(path)}")
             placeholder = '<html><body><h2>Error loading notebook</h2><p>File could not be parsed as JSON.</p></body></html>'
@@ -296,7 +312,7 @@ class QMPlusScoring(QMainWindow):
         s_nb = self._extract_lab_notebook(spath)
         if not s_nb:
             QMessageBox.warning(self, "Missing", f"Lab {self.lab_key} not found for {name_id}")
-            return
+            s_nb = None
         s_html = self._notebook_to_html(s_nb)
         r_html = self._notebook_to_html(self.ref_path)
         self.student_view.load(QUrl.fromLocalFile(s_html))
@@ -314,6 +330,8 @@ class QMPlusScoring(QMainWindow):
 
     @pyqtSlot(QPointF)
     def _sync_scroll(self, pos):
+        if not self.sync_checkbox.isChecked():
+            return
         js = f"window.scrollTo(0, {int(pos.y())});"
         self.ref_view.page().runJavaScript(js)
 
@@ -353,7 +371,7 @@ class QMPlusScoring(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save results to CSV",
-            "Lab-{self.lab_key}.csv",
+            f"Lab-{self.lab_key}.csv",
             "CSV Files (*.csv)"
         )
         if not path:
@@ -373,13 +391,14 @@ class QMPlusScoring(QMainWindow):
         fig = self.hist_canvas.figure
         fig.clear()
         ax = fig.add_subplot(111)
+        bins_set = "auto" if len(scores) > 10 else len(scores)
         if scores:
-            ax.hist(scores, color="#FF8000", bins=10, cumulative=True, rwidth=0.2)
+            ax.hist(scores, color="#FF8000", bins=bins_set, cumulative=True, rwidth=0.25)
         #ax.set_title('Score Distribution')
         ax.set_xlabel('Score')
         ax.set_ylabel('Frequency')
         ax.xaxis.set_major_locator(plt.MultipleLocator(1))
-        ax.yaxis.set_major_locator(plt.MultipleLocator(1))
+        # ax.yaxis.set_major_locator(plt.MultipleLocator(1))
         
         # ax set top and right spines to invisible
         ax.spines['top'].set_visible(False)
